@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --check server/server.js && node --check assets/js/app.js && node --check assets/js/providers.js && node --check assets/js/schema.js && node --check assets/js/watchlist.js && node --check assets/js/risk.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.1",
+    "csv-parse": "^5.5.6",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1"
+  },
+  "devDependencies": {},
+  "type": "module"
+}
