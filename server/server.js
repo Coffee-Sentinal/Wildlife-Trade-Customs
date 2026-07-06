@@ -1,0 +1,16 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import dotenv from 'dotenv';
+dotenv.config({ path: new URL('./.env', import.meta.url).pathname });
+const app = Fastify({ logger: true });
+await app.register(cors, { origin: true });
+const cache = new Map();
+async function cachedFetch(url, options = {}, ttlMs = 3600000){ const key=url+JSON.stringify(options.headers||{}); const hit=cache.get(key); if(hit && Date.now()-hit.t<ttlMs) return hit.v; const r=await fetch(url, options); const text=await r.text(); if(!r.ok) throw new Error(`${r.status}: ${text.slice(0,300)}`); const v=JSON.parse(text); cache.set(key,{t:Date.now(),v}); return v; }
+app.get('/api/health', async()=>({ok:true, configured:{comtrade:!!process.env.COMTRADE_API_KEY,census:!!process.env.CENSUS_API_KEY,speciesplus:!!process.env.SPECIESPLUS_TOKEN,opencorporates:!!process.env.OPENCORPORATES_API_KEY}}));
+app.get('/api/comtrade', async(req)=>{ const {reporterCode,partnerCode='0',hsCodes='',yearFrom,yearTo}=req.query; const rows=[]; for(const hs of String(hsCodes).split(',').filter(Boolean)){ for(let y=Number(yearFrom); y<=Number(yearTo); y++){ const url=`https://comtradeapi.un.org/data/v1/get/C/A/HS?cmdCode=${encodeURIComponent(hs)}&flowCode=X&reporterCode=${encodeURIComponent(reporterCode)}&partnerCode=${encodeURIComponent(partnerCode)}&period=${y}&includeDesc=true`; const json=await cachedFetch(url,{headers:process.env.COMTRADE_API_KEY?{'Ocp-Apim-Subscription-Key':process.env.COMTRADE_API_KEY}:{}}); rows.push(...(json.data||json.dataset||[])); }} return {data:rows}; });
+app.get('/api/census', async(req)=>{ const {hsCodes='',yearTo}=req.query; const rows=[]; for(const hs of String(hsCodes).split(',').filter(Boolean)){ const key=process.env.CENSUS_API_KEY ? `&key=${process.env.CENSUS_API_KEY}` : ''; const url=`https://api.census.gov/data/timeseries/intltrade/exports/hs?get=CTY_CODE,CTY_NAME,E_COMMODITY,E_COMMODITY_LDESC,ALL_VAL_MO,ALL_VAL_YR,QTY_1_MO,UNIT_QY1,YEAR,MONTH&YEAR=${yearTo}&MONTH=12&E_COMMODITY=${encodeURIComponent(hs)}${key}`; const arr=await cachedFetch(url); const headers=arr[0]||[]; rows.push(...arr.slice(1).map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]])))); } return {data:rows}; });
+app.get('/api/speciesplus', async(req)=>{ if(!process.env.SPECIESPLUS_TOKEN) throw new Error('SPECIESPLUS_TOKEN is not configured'); const name=req.query.name||req.query.scientificName||''; const url=`https://api.speciesplus.net/api/v1/taxon_concepts?name=${encodeURIComponent(name)}`; return cachedFetch(url,{headers:{'X-Authentication-Token':process.env.SPECIESPLUS_TOKEN}}); });
+app.get('/api/eurostat', async()=>({data:[], warning:'Use Eurostat Comext API/bulk import for production; this MVP documents the connector and keeps the route reserved.'}));
+app.get('/api/opencorporates', async(req)=>{ if(!process.env.OPENCORPORATES_API_KEY) throw new Error('OPENCORPORATES_API_KEY is not configured'); const url=`https://api.opencorporates.com/v0.4/companies/search?q=${encodeURIComponent(req.query.q||'')}&api_token=${process.env.OPENCORPORATES_API_KEY}`; return cachedFetch(url); });
+app.get('/api/gleif', async(req)=>cachedFetch(`https://api.gleif.org/api/v1/lei-records?filter[entity.legalName]=${encodeURIComponent(req.query.q||'')}`));
+app.listen({ port: process.env.PORT || 8787, host: '0.0.0.0' });
